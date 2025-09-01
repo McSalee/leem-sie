@@ -1,20 +1,5 @@
 
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles, Bot, Send, Menu, X, Wand2, Settings, Rocket, Shield, ChevronRight, Mail, CheckCircle2 } from "lucide-react";
-
-// =============================================================
-// AI-Integrated One-Page Website
-// - Pure React + TailwindCSS
-// - No external UI kit required
-// - Includes: Landing, Features, Pricing, Contact, and an AI Chat widget
-// - Pluggable AI via /api/ai or any endpoint; falls back to a local rule-based bot
-// =============================================================
-// ---- Utility: classNames ----
-function cn(...classes) {
-  return classes.filter(Boolean).join(" ");
-}
-
 // ---- Local mini-bot fallback (rule-based) ----
 function localAIBot(userText) {
   const t = userText.trim().toLowerCase();
