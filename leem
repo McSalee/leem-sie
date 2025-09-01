@@ -1,0 +1,477 @@
+
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Sparkles, Bot, Send, Menu, X, Wand2, Settings, Rocket, Shield, ChevronRight, Mail, CheckCircle2 } from "lucide-react";
+
+// =============================================================
+// AI-Integrated One-Page Website
+// - Pure React + TailwindCSS
+// - No external UI kit required
+// - Includes: Landing, Features, Pricing, Contact, and an AI Chat widget
+// - Pluggable AI via /api/ai or any endpoint; falls back to a local rule-based bot
+// =============================================================
+// ---- Utility: classNames ----
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
+// ---- Local mini-bot fallback (rule-based) ----
+function localAIBot(userText) {
+  const t = userText.trim().toLowerCase();
+  if (!t) return "Please type a message.";
+  if (/(hello|hi|hey)/.test(t)) return "Hey there 👋 — I'm your site assistant! How can I help today?";
+  if (/price|plan|cost/.test(t)) return "We offer Starter ($0), Growth ($19/mo), and Scale ($99/mo). Which one fits you?";
+  if (/contact|email|reach/.test(t)) return "You can reach us via the contact form below or email hello@yourbrand.dev.";
+  if (/integrat(e|ion)|api|key/.test(t)) return "Hook me up by setting your AI Endpoint and API Key in Settings → AI Integration, then I can use your real model.";
+  if (/deploy|vercel|netlify/.test(t)) return "You can deploy this single file to Vercel/Netlify in minutes. See the Deployment notes in Settings.";
+  return "I'm a local demo bot. Add your real AI endpoint in Settings and I'll become way smarter!";
+}
+
+// ---- AI Client: configurable endpoint + key (stored in localStorage) ----
+async function callAI(messages, modelHint = "gpt-4o-mini") {
+  const endpoint = localStorage.getItem("ai_endpoint") || ""; // e.g., "/api/ai" or full URL
+  const apiKey = localStorage.getItem("ai_api_key") || "";    // if your endpoint needs one
+  const provider = localStorage.getItem("ai_provider") || "generic"; // e.g., openai, groq, generic
+
+  if (!endpoint) {
+    // no endpoint configured — use local bot
+    const lastUser = messages[messages.length - 1]?.content || "";
+    return { role: "assistant", content: localAIBot(lastUser) };
+  }
+
+  try {
+    // Generic JSON schema. Adjust on your server as needed.
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...(provider ? { "x-ai-provider": provider } : {}),
+      },
+      body: JSON.stringify({ model: modelHint, messages }),
+    });
+    if (!res.ok) throw new Error(`AI endpoint error: ${res.status}`);
+    const data = await res.json();
+    // Expect shape: { role: 'assistant', content: '...reply...' } or {choices:[{message:{role,content}}]}
+    if (data?.role && data?.content) return data;
+    if (Array.isArray(data?.choices)) return data.choices[0]?.message ?? { role: "assistant", content: "(No content)" };
+    return { role: "assistant", content: JSON.stringify(data) };
+  } catch (e) {
+    return { role: "assistant", content: `Could not reach AI endpoint. Fallback reply: ${localAIBot(messages[messages.length-1]?.content || "")}\n\n(Technical: ${e.message})` };
+  }
+}
+
+// ---- Site Settings persisted locally ----
+const defaultBrand = {
+  name: "YourBrand",
+  tagline: "AI-powered experiences for modern teams",
+  primaryHue: 220, // Tailwind HSL hue for accents
+};
+
+function useBrand() {
+  const [brand, setBrand] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("brand")) || defaultBrand;
+    } catch {
+      return defaultBrand;
+    }
+  });
+  useEffect(() => localStorage.setItem("brand", JSON.stringify(brand)), [brand]);
+  return [brand, setBrand];
+}
+
+// ---- Navbar ----
+function Navbar({ onOpenSettings }) {
+  const [open, setOpen] = useState(false);
+  const links = [
+    { href: "#features", label: "Features" },
+    { href: "#pricing", label: "Pricing" },
+    { href: "#contact", label: "Contact" },
+  ];
+  return (
+    <nav className="sticky top-0 z-40 backdrop-blur bg-white/70 dark:bg-neutral-950/50 border-b border-neutral-200 dark:border-neutral-800">
+      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+        <a href="#home" className="flex items-center gap-2 font-semibold">
+          <Sparkles className="h-5 w-5" />
+          <span>AI Site</span>
+        </a>
+        <div className="hidden md:flex items-center gap-6">
+          {links.map((l) => (
+            <a key={l.href} href={l.href} className="text-sm text-neutral-700 dark:text-neutral-200 hover:opacity-80">
+              {l.label}
+            </a>
+          ))}
+          <button onClick={onOpenSettings} className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-900">
+            <Settings className="h-4 w-4" /> Settings
+          </button>
+        </div>
+        <button onClick={() => setOpen(!open)} className="md:hidden p-2 rounded-xl border border-neutral-300 dark:border-neutral-700">
+          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </div>
+      {open && (
+        <div className="md:hidden border-t border-neutral-200 dark:border-neutral-800 px-4 py-3 space-y-2">
+          <a href="#features" className="block text-sm">Features</a>
+          <a href="#pricing" className="block text-sm">Pricing</a>
+          <a href="#contact" className="block text-sm">Contact</a>
+          <button onClick={onOpenSettings} className="mt-2 w-full inline-flex items-center justify-center gap-2 text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700"> <Settings className="h-4 w-4" /> Settings</button>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+// ---- Hero ----
+function Hero({ brand }) {
+  return (
+    <section id="home" className="relative overflow-hidden">
+      <div className="absolute inset-0 -z-10 opacity-30 blur-3xl" style={{ background: `conic-gradient(from 90deg at 50% 50%, hsl(${brand.primaryHue} 85% 60% / .3), transparent 30%)` }} />
+      <div className="mx-auto max-w-6xl px-4 py-20 md:py-28 grid md:grid-cols-2 gap-10 items-center">
+        <div>
+          <div className="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full border border-neutral-300 dark:border-neutral-700 mb-4">
+            <Wand2 className="h-3.5 w-3.5" /> AI integrated
+          </div>
+          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-tight">
+            {brand.name}: <span className="text-neutral-600 dark:text-neutral-300">{brand.tagline}</span>
+          </h1>
+          <p className="mt-4 text-neutral-700 dark:text-neutral-300 max-w-prose">
+            Launch a polished website with a built-in AI assistant for support, content, and automation — no backend required. Plug in your endpoint anytime.
+          </p>
+          <div className="mt-6 flex items-center gap-3">
+            <a href="#contact" className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-2xl bg-black text-white dark:bg-white dark:text-black shadow">
+              <Rocket className="h-4 w-4" /> Get Started
+            </a>
+            <a href="#features" className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-2xl border border-neutral-300 dark:border-neutral-700">
+              Explore Features <ChevronRight className="h-4 w-4" />
+            </a>
+          </div>
+          <ul className="mt-6 text-sm text-neutral-600 dark:text-neutral-400 space-y-2">
+            <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Chatbot with fallback AI</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Content generator & ideas</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Ready for OpenAI/Groq/Any endpoint</li>
+          </ul>
+        </div>
+        <div className="relative rounded-3xl border border-neutral-200 dark:border-neutral-800 p-6 shadow-sm bg-white/60 dark:bg-neutral-900/50">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-2 w-2 rounded-full bg-rose-500" />
+            <div className="h-2 w-2 rounded-full bg-amber-500" />
+            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+          </div>
+          <pre className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed text-neutral-800 dark:text-neutral-200">{`// Plug-and-play AI example (pseudo)
+const res = await fetch('/api/ai', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer YOUR_KEY' },
+  body: JSON.stringify({ model: 'gpt-4o-mini', messages })
+});
+const data = await res.json();
+return data.choices[0].message;`}</pre>
+          <div className="mt-4 text-xs text-neutral-600 dark:text-neutral-400">Swap /api/ai with your endpoint. Works with OpenAI-compatible servers.</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---- Features ----
+function Features() {
+  const data = [
+    { icon: <Bot className="h-5 w-5" />, title: "Chat Assistant", desc: "Answer FAQs, capture leads, and route complex questions." },
+    { icon: <Wand2 className="h-5 w-5" />, title: "Content Generator", desc: "Draft blog posts, product copy, emails, and social captions." },
+    { icon: <Shield className="h-5 w-5" />, title: "Safe & Private", desc: "Keep keys client-side or proxy via your server — your choice." },
+  ];
+  return (
+    <section id="features" className="mx-auto max-w-6xl px-4 py-16">
+      <h2 className="text-2xl md:text-3xl font-bold mb-8">Features</h2>
+      <div className="grid md:grid-cols-3 gap-6">
+        {data.map((f) => (
+          <div key={f.title} className="rounded-2xl border border-neutral-200 dark:border-neutral-800 p-6 bg-white/70 dark:bg-neutral-900/50 shadow-sm">
+            <div className="h-10 w-10 rounded-xl border border-neutral-200 dark:border-neutral-700 flex items-center justify-center mb-4">{f.icon}</div>
+            <h3 className="font-semibold mb-1">{f.title}</h3>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">{f.desc}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ---- AI Content Generator ----
+function ContentGenerator() {
+  const [topic, setTopic] = useState("");
+  const [tone, setTone] = useState("helpful");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState("");
+
+  async function generate() {
+    setLoading(true);
+    const messages = [
+      { role: "system", content: `Write concise marketing copy in a ${tone} tone.` },
+      { role: "user", content: `Create website copy about: ${topic}` },
+    ];
+    const ai = await callAI(messages);
+    setResult(ai.content || "(no content)");
+    setLoading(false);
+  }
+
+  return (
+    <section className="mx-auto max-w-6xl px-4 py-16">
+      <div className="rounded-3xl border border-neutral-200 dark:border-neutral-800 p-6 md:p-8 bg-white/70 dark:bg-neutral-900/50">
+        <div className="flex items-center gap-2 mb-4">
+          <Wand2 className="h-5 w-5" />
+          <h3 className="text-lg font-semibold">AI Content Generator</h3>
+        </div>
+        <div className="grid md:grid-cols-3 gap-4">
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g., Our new fintech for MSMEs" className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent" />
+          <select value={tone} onChange={(e) => setTone(e.target.value)} className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent">
+            <option value="helpful">Helpful</option>
+            <option value="professional">Professional</option>
+            <option value="playful">Playful</option>
+            <option value="bold">Bold</option>
+          </select>
+          <button onClick={generate} disabled={loading || !topic} className="inline-flex items-center justify-center gap-2 text-sm px-4 py-2 rounded-2xl bg-black text-white disabled:opacity-50">
+            <Sparkles className="h-4 w-4" /> {loading ? "Generating..." : "Generate"}
+          </button>
+        </div>
+        {result && (
+          <div className="mt-4 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 text-sm whitespace-pre-wrap">
+            {result}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---- Pricing ----
+function Pricing() {
+  const tiers = [
+    { name: "Starter", price: "$0", features: ["Basic chatbot", "Content generator", "Email support"], cta: "Start Free" },
+    { name: "Growth", price: "$19/mo", highlighted: true, features: ["Custom AI endpoint", "Leads export", "Priority support"], cta: "Upgrade" },
+    { name: "Scale", price: "$99/mo", features: ["SSO & roles", "Analytics API", "SLA support"], cta: "Contact Sales" },
+  ];
+  return (
+    <section id="pricing" className="mx-auto max-w-6xl px-4 py-16">
+      <h2 className="text-2xl md:text-3xl font-bold mb-8">Pricing</h2>
+      <div className="grid md:grid-cols-3 gap-6">
+        {tiers.map((t) => (
+          <div key={t.name} className={cn("rounded-3xl border p-6 bg-white/70 dark:bg-neutral-900/50 shadow-sm", t.highlighted ? "border-black dark:border-white" : "border-neutral-200 dark:border-neutral-800") }>
+            <h3 className="font-semibold">{t.name}</h3>
+            <div className="text-3xl font-extrabold mt-2">{t.price}</div>
+            <ul className="mt-4 space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
+              {t.features.map((f) => (
+                <li key={f} className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {f}</li>
+              ))}
+            </ul>
+            <button className={cn("mt-6 w-full text-sm px-4 py-2 rounded-2xl border", t.highlighted ? "bg-black text-white dark:bg-white dark:text-black border-black dark:border-white" : "border-neutral-300 dark:border-neutral-700")}>{t.cta}</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ---- Contact ----
+function Contact() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [sent, setSent] = useState(false);
+
+  function submit(e) {
+    e.preventDefault();
+    // In production, post to your server or service (e.g., Formspree)
+    setSent(true);
+  }
+
+  return (
+    <section id="contact" className="mx-auto max-w-6xl px-4 py-16">
+      <div className="rounded-3xl border border-neutral-200 dark:border-neutral-800 p-6 md:p-8 bg-white/70 dark:bg-neutral-900/50">
+        <div className="flex items-center gap-2 mb-4">
+          <Mail className="h-5 w-5" />
+          <h3 className="text-lg font-semibold">Contact us</h3>
+        </div>
+        {sent ? (
+          <div className="text-sm">Thanks {name || "friend"}! We'll reach out at {email || "your email"}.</div>
+        ) : (
+          <form onSubmit={submit} className="grid md:grid-cols-2 gap-4">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent" />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent" />
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="How can we help?" className="md:col-span-2 w-full h-28 text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent" />
+            <button className="md:col-span-2 inline-flex items-center justify-center gap-2 text-sm px-4 py-2 rounded-2xl bg-black text-white">Send</button>
+          </form>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---- Floating AI Chat Widget ----
+function ChatWidget() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([{ role: "assistant", content: "Hi! I'm your AI assistant. Ask me about features, pricing, or deployment." }]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const scroller = useRef(null);
+
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [messages, open]);
+
+  async function send() {
+    if (!text.trim()) return;
+    const next = [...messages, { role: "user", content: text }];
+    setMessages(next);
+    setText("");
+    setBusy(true);
+    const aiMsg = await callAI(next);
+    setMessages((prev) => [...prev, aiMsg]);
+    setBusy(false);
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50">
+      {open && (
+        <div className="mb-2 w-[22rem] max-w-[92vw] h-[28rem] rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/90 dark:bg-neutral-950/90 backdrop-blur shadow-2xl overflow-hidden flex flex-col">
+          <div className="px-3 py-2 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between bg-gradient-to-r from-white/80 to-white/30 dark:from-neutral-900/60 dark:to-neutral-900/20">
+            <div className="flex items-center gap-2"><Bot className="h-4 w-4" /><span className="text-sm font-medium">AI Assistant</span></div>
+            <button onClick={() => setOpen(false)} className="p-1 rounded-lg border border-neutral-300 dark:border-neutral-700"><X className="h-4 w-4" /></button>
+          </div>
+          <div ref={scroller} className="flex-1 px-3 py-3 overflow-y-auto space-y-3">
+            {messages.map((m, i) => (
+              <div key={i} className={cn("max-w-[85%] px-3 py-2 rounded-2xl text-sm", m.role === "assistant" ? "bg-neutral-100 dark:bg-neutral-900" : "bg-black text-white ml-auto")}>{m.content}</div>
+            ))}
+            {busy && <div className="text-xs text-neutral-500">Assistant is thinking…</div>}
+          </div>
+          <div className="p-2 border-t border-neutral-200 dark:border-neutral-800 flex items-center gap-2">
+            <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Type a message…" className="flex-1 text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent" />
+            <button onClick={send} className="inline-flex items-center justify-center p-2 rounded-xl border border-neutral-300 dark:border-neutral-700"><Send className="h-4 w-4" /></button>
+          </div>
+        </div>
+      )}
+      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-black text-white shadow-lg">
+        <Bot className="h-4 w-4" /> Chat
+      </button>
+    </div>
+  );
+}
+
+// ---- Settings Modal ----
+function SettingsPanel({ open, onClose, brand, setBrand }) {
+  const [hue, setHue] = useState(brand.primaryHue);
+  const [name, setName] = useState(brand.name);
+  const [tagline, setTagline] = useState(brand.tagline);
+  const [endpoint, setEndpoint] = useState("");
+  const [provider, setProvider] = useState("generic");
+  const [apiKey, setApiKey] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setEndpoint(localStorage.getItem("ai_endpoint") || "");
+    setApiKey(localStorage.getItem("ai_api_key") || "");
+    setProvider(localStorage.getItem("ai_provider") || "generic");
+  }, [open]);
+
+  function saveBrand() {
+    setBrand({ name, tagline, primaryHue: Number(hue) || 220 });
+  }
+  function saveAI() {
+    localStorage.setItem("ai_endpoint", endpoint);
+    localStorage.setItem("ai_api_key", apiKey);
+    localStorage.setItem("ai_provider", provider);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-2xl rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2"><Settings className="h-5 w-5" /><h3 className="font-semibold">Settings</h3></div>
+          <button onClick={onClose} className="p-2 rounded-xl border border-neutral-300 dark:border-neutral-700"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <div>
+            <h4 className="text-sm font-medium mb-2">Brand</h4>
+            <label className="text-xs">Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent mb-2" />
+            <label className="text-xs">Tagline</label>
+            <input value={tagline} onChange={(e) => setTagline(e.target.value)} className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent mb-2" />
+            <label className="text-xs">Accent Hue ({hue})</label>
+            <input type="range" min="0" max="360" value={hue} onChange={(e) => setHue(e.target.value)} className="w-full" />
+            <button onClick={saveBrand} className="mt-3 text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700">Save brand</button>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-medium mb-2">AI Integration</h4>
+            <label className="text-xs">Endpoint URL</label>
+            <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="/api/ai or https://..." className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent mb-2" />
+            <label className="text-xs">Provider (optional)</label>
+            <select value={provider} onChange={(e) => setProvider(e.target.value)} className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent mb-2">
+              <option value="generic">Generic</option>
+              <option value="openai">OpenAI-compatible</option>
+              <option value="groq">Groq</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+            <label className="text-xs">API Key (optional)</label>
+            <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="w-full text-sm px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-transparent mb-2" />
+            <button onClick={saveAI} className="mt-1 text-sm px-3 py-2 rounded-xl bg-black text-white">Save AI settings</button>
+            {saved && <div className="text-xs text-emerald-600 mt-2">Saved!</div>}
+            <p className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
+              Tip: Add a lightweight proxy on Vercel to keep keys safe. The frontend will POST messages; your API route calls the model and returns text.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 p-4">
+          <h4 className="text-sm font-medium mb-2">Deployment notes</h4>
+          <ol className="list-decimal list-inside text-xs space-y-1 text-neutral-600 dark:text-neutral-400">
+            <li>Export this component into a React/Vite/Next.js project.</li>
+            <li>Ensure TailwindCSS is configured (this preview already uses Tailwind).</li>
+            <li>Optionally add an API route <code>/api/ai</code> to proxy your provider.</li>
+            <li>Deploy to Vercel/Netlify. Done.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Footer ----
+function Footer() {
+  return (
+    <footer className="border-t border-neutral-200 dark:border-neutral-800">
+      <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-neutral-600 dark:text-neutral-400 flex items-center justify-between">
+        <span>© {new Date().getFullYear()} YourBrand. All rights reserved.</span>
+        <a href="#home" className="hover:underline">Back to top</a>
+      </div>
+    </footer>
+  );
+}
+
+// ---- Main App ----
+export default function App() {
+  const [brand, setBrand] = useBrand();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--brand-hue", String(brand.primaryHue));
+  }, [brand.primaryHue]);
+
+  return (
+    <div className="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <Navbar onOpenSettings={() => setSettingsOpen(true)} />
+      <Hero brand={brand} />
+      <Features />
+      <ContentGenerator />
+      <Pricing />
+      <Contact />
+      <Footer />
+      <ChatWidget />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} brand={brand} setBrand={setBrand} />
+      <style>{`:root{ --brand-hue:${brand.primaryHue}; } .brand { color: hsl(var(--brand-hue) 90% 45%);} .brand-bg { background-color: hsl(var(--brand-hue) 90% 45%);} .brand-ring { box-shadow: 0 0 0 2px hsl(var(--brand-hue) 90% 45%);} `}</style>
+    </div>
+  );
+}
